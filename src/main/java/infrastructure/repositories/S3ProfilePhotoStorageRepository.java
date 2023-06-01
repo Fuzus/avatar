@@ -15,6 +15,7 @@ import software.amazon.awssdk.services.s3.model.PutObjectResponse;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.concurrent.CompletableFuture;
 
 @ApplicationScoped
@@ -57,5 +58,33 @@ public class S3ProfilePhotoStorageRepository implements ProfilePhotoStorageRepos
                         .toString()
                 );
 
+    }
+
+    @Override
+    public Uni<String> store(String customerId, ProfilePhoto profilePhoto, String base64) {
+        var key = customerId + "/" + profilePhoto.id() + "-stable-diffusion";
+        byte[] decodedBytes = Base64.getDecoder().decode(base64);
+
+        CompletableFuture<PutObjectResponse> future =
+                s3.putObject(PutObjectRequest.builder()
+                                .bucket(this.bucket)
+                                .key(key)
+                                .contentType("image/png")
+                                .contentLength((long) decodedBytes.length)
+                                .acl(ObjectCannedACL.PUBLIC_READ)
+                                .build(),
+                        AsyncRequestBody.fromBytes(decodedBytes));
+
+        return Uni.createFrom()
+                .completionStage(() -> future)
+                .onItem().delayIt().by(Duration.ofSeconds(5))
+                .onItem()
+                .transform(response -> s3.utilities()
+                        .getUrl(GetUrlRequest.builder()
+                                .bucket(this.bucket)
+                                .key(key)
+                                .build())
+                        .toString()
+                );
     }
 }
